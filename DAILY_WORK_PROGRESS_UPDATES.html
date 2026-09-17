@@ -77,10 +77,14 @@
   .live-badge.offline .dot{background:var(--amber);}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
 
-  select,input[type=text],input[type=number],input[type=date]{
+  select,input[type=text],input[type=number],input[type=date],textarea{
     font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:7px 9px;border:1px solid var(--line);
     border-radius:4px;background:#fff;color:var(--text);width:100%;
   }
+  textarea{resize:vertical;min-height:60px;}
+  .manager-message{margin:0 16px 12px;padding:10px 14px;border-radius:6px;background:var(--amber-bg,#FFF4E5);border:1px solid var(--amber,#C87F0A);font-size:13px;line-height:1.5;color:var(--text);display:flex;gap:10px;align-items:flex-start;}
+  .manager-message .icon{font-size:16px;line-height:1;flex-shrink:0;}
+  .manager-message b{color:var(--amber,#C87F0A);}
   label{font-size:12px;color:var(--text-secondary,#3d4a56);display:block;margin-bottom:4px;}
   .field-err{font-size:11px;color:var(--red);margin-top:4px;display:none;}
   .field-err.show{display:block;}
@@ -364,6 +368,7 @@
           <div><label>Arrival date (ATD) *</label><input type="date" id="npAtd"></div>
           <div><label>Original departure (ETD)</label><input type="date" id="npEtdOrig"></div>
           <div><label>Expected departure *</label><input type="date" id="npEtdExp"></div>
+          <div class="span2"><label>Manager message to engineer</label><textarea id="npManagerMessage" rows="3" placeholder="A note for the assigned engineer — e.g. priorities, site conditions, deadlines…"></textarea></div>
         </div>
         <div class="field-err" id="npErr"></div>
         <div style="margin-top:12px;display:flex;gap:8px;">
@@ -430,6 +435,7 @@
         </div>
       </div>
       <div class="meta-row" id="projectMeta"></div>
+      <div id="managerMessageBanner"></div>
 
       <div style="padding:12px 16px;border-top:1px solid var(--line);">
         <button class="btn primary" id="toggleJobFormBtn" onclick="toggleJobForm()">＋ Add Jobs</button>
@@ -582,7 +588,8 @@ async function fetchAllProjects(){
         estMH: p['Estimated MH'] ?? p.EstimatedMH ?? p.estMH ?? '',
         atd: String(p.ATD || p.atd || '').slice(0,10),
         etdOrig: String(p['Original ETD'] || p.OriginalETD || p.etdOrig || '').slice(0,10),
-        etdExp: String(p['Expected ETD'] || p.ExpectedETD || p.etdExp || '').slice(0,10)
+        etdExp: String(p['Expected ETD'] || p.ExpectedETD || p.etdExp || '').slice(0,10),
+        managerMessage: p['Manager Message'] || p.ManagerMessage || p.managerMessage || ''
       })).sort((a,b)=>(Number(a.seq)||9999)-(Number(b.seq)||9999));
     }catch(e){
       console.warn('SharePoint project read failed; using local browser data.',e);
@@ -1100,7 +1107,7 @@ function openNewProjectForm(){
   editingProjectId = null;
   document.getElementById('npFormTitle').textContent = 'New project';
   document.getElementById('npSubmitBtn').textContent = 'Save project';
-  ['npSeq','npName','npMH','npAtd','npEtdOrig','npEtdExp'].forEach(id2 => document.getElementById(id2).value = '');
+  ['npSeq','npName','npMH','npAtd','npEtdOrig','npEtdExp','npManagerMessage'].forEach(id2 => document.getElementById(id2).value = '');
   document.getElementById('npSeq').value = String((projectsCache.reduce((m,p)=>Math.max(m,Number(p.seq)||0),0))+1);
   populatePeopleSelect('npIncharge', inchargeRoster, '');
   populatePeopleSelect('npForeman', foremanRoster, '');
@@ -1124,6 +1131,7 @@ function editProject(id){
   document.getElementById('npAtd').value = p.atd || '';
   document.getElementById('npEtdOrig').value = p.etdOrig || '';
   document.getElementById('npEtdExp').value = p.etdExp || '';
+  document.getElementById('npManagerMessage').value = p.managerMessage || '';
   populatePeopleSelect('npIncharge', inchargeRoster, p.incharge);
   populatePeopleSelect('npForeman', foremanRoster, p.foreman);
   document.getElementById('npInchargeOtherWrap').classList.toggle('hidden', document.getElementById('npIncharge').value !== '__new__');
@@ -1162,7 +1170,8 @@ async function submitNewProject(){
     id, seq: document.getElementById('npSeq').value || '',
     name, incharge, foreman,
     estMH: document.getElementById('npMH').value || '',
-    atd, etdOrig: document.getElementById('npEtdOrig').value || '', etdExp
+    atd, etdOrig: document.getElementById('npEtdOrig').value || '', etdExp,
+    managerMessage: document.getElementById('npManagerMessage').value.trim()
   };
   const statusEl = document.getElementById('newProjectStatus');
 
@@ -1182,7 +1191,8 @@ async function submitNewProject(){
           EstimatedMH: project.estMH === '' ? null : Number(project.estMH),
           ATD: project.atd,
           OriginalETD: project.etdOrig || null,
-          ExpectedETD: project.etdExp
+          ExpectedETD: project.etdExp,
+          ManagerMessage: project.managerMessage || ''
         })
       });
       const text = await response.text();
@@ -1239,7 +1249,7 @@ let editingTaskId = null;
 
 async function loadProjectSelector(){
   if(!projectsCache.length)projectsCache=await fetchAllProjects();const sel=document.getElementById('projectSelect'),prev=selectedProjectId,pool=isEngineer()?projectsCache.filter(currentEngineerOwnsProject):projectsCache;
-  sel.innerHTML=pool.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(!pool.length){document.getElementById('projectMeta').innerHTML='<span>No projects assigned to you yet.</span>';document.getElementById('taskBody').innerHTML='<tr class="empty-row"><td colspan="15">No projects available.</td></tr>';return;}const id=prev&&pool.some(p=>p.id===prev)?prev:pool[0].id;sel.value=id;onSelectProject(id);
+  sel.innerHTML=pool.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(!pool.length){document.getElementById('projectMeta').innerHTML='<span>No projects assigned to you yet.</span>';document.getElementById('managerMessageBanner').innerHTML='';document.getElementById('taskBody').innerHTML='<tr class="empty-row"><td colspan="15">No projects available.</td></tr>';return;}const id=prev&&pool.some(p=>p.id===prev)?prev:pool[0].id;sel.value=id;onSelectProject(id);
 }
 
 async function onSelectProject(id){
@@ -1253,6 +1263,8 @@ async function onSelectProject(id){
     <span>ATD: <b>${esc(p.atd||'—')}</b></span>
     <span>ETD: <b>${esc(p.etdExp||'—')}</b></span>
     <span>Est. manhours: <b>${esc(p.estMH||'—')}</b></span>`;
+  const msgEl = document.getElementById('managerMessageBanner');
+  if(msgEl) msgEl.innerHTML = p.managerMessage ? `<div class="manager-message"><span class="icon">📌</span><span><b>Manager's message:</b> ${esc(p.managerMessage)}</span></div>` : '';
   const body=document.getElementById('taskBody');
   if(body) body.innerHTML='<tr class="empty-row"><td colspan="15">Loading jobs for '+esc(p.name)+'…</td></tr>';
   await loadTasks(false, token);
